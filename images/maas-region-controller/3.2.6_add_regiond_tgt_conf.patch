@@ -1,0 +1,72 @@
+From 4fa83cc24134fed89075b690bd961a4cb5def603 Mon Sep 17 00:00:00 2001
+From: Jon McCreery <jmccreery@crusoeenergy.com>
+Date: Fri, 18 Nov 2022 15:12:01 -0700
+Subject: [PATCH] add a config value to allow setting rackd callback ip
+
+---
+ src/maasserver/config.py    |  6 ++++++
+ src/maasserver/views/rpc.py | 14 +++++++++++++-
+ 2 files changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/src/maasserver/config.py b/src/maasserver/config.py
+index a53b0dd49..cd6995f49 100644
+--- a/src/maasserver/config.py
++++ b/src/maasserver/config.py
+@@ -45,6 +45,12 @@ class RegionConfiguration(Configuration, metaclass=RegionConfigurationMeta):
+         ),
+     )
+ 
++    eventloop_ip = ConfigurationOption(
++        "eventloop_ip",
++        "The IP address that rackd uses to connect to regiond.",
++        UnicodeString(if_missing="", accept_python=False),
++    )
++
+     # Database options.
+     database_host = ConfigurationOption(
+         "database_host",
+diff --git a/src/maasserver/views/rpc.py b/src/maasserver/views/rpc.py
+index 3c7b0253a..16d38e0be 100644
+--- a/src/maasserver/views/rpc.py
++++ b/src/maasserver/views/rpc.py
+@@ -13,6 +13,7 @@ import json
+ from django.http import HttpResponse
+ 
+ from maasserver.models.node import RegionController
++from maasserver.config import RegionConfiguration
+ 
+ 
+ def get_endpoints():
+@@ -35,6 +36,12 @@ def get_endpoints():
+                             return False
+         return True
+ 
++    with RegionConfiguration.open() as config:
++        if config.eventloop_ip != '':
++            rackd_tgt = config.eventloop_ip
++        else:
++            rackd_tgt = None
++
+     regions = RegionController.objects.all()
+     regions = regions.prefetch_related("processes", "processes__endpoints")
+     all_endpoints = []
+@@ -42,10 +49,15 @@ def get_endpoints():
+         for process in region_obj.processes.all():
+             for endpoint in process.endpoints.all():
+                 if _unique_to_region(endpoint.address, region_obj, regions):
++                    if rackd_tgt:
++                        effective_tgt = rackd_tgt
++                    else:
++                        effective_tgt = endpoint.address
++
+                     all_endpoints.append(
+                         (
+                             "%s:pid=%d" % (region_obj.hostname, process.pid),
+-                            endpoint.address,
++                            effective_tgt,
+                             endpoint.port,
+                         )
+                     )
+-- 
+2.37.0 (Apple Git-136)
+
